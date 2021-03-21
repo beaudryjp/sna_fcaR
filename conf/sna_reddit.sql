@@ -12,7 +12,8 @@ CREATE TABLE awards_post (
 );
 
 ALTER TABLE awards_post ADD CONSTRAINT awards_post_pk PRIMARY KEY ( post_id,
-                                                                    coin_id );
+                                                                    coin_id, 
+                                                                    quantity );
 
 CREATE TABLE coin (
     id           VARCHAR(255) NOT NULL,

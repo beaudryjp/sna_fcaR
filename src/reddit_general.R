@@ -2,7 +2,7 @@
 ### Install and load R packages
 package_load <- function(){
   list.of.packages <- c("tm", "wordcloud", "wordcloud2", "DT", "intergraph", "network", "sna", "scales", 
-                        "GGally", "RMariaDB", "curl", "stringr", "textclean", "anytime", "stringi",
+                        "GGally", "RMariaDB", "curl", "stringr", "textclean", "anytime", "stringi", "httr",
                         "jsonlite", "twitteR", "RedditExtractoR","tidyverse", "RColorBrewer","sna")
   new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
   if(length(new.packages)) install.packages(new.packages) 

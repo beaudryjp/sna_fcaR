@@ -12,7 +12,7 @@ source(paste0(getwd(), "/src/", "reddit_user.R"))
 ### post_get_comments()
 ### Get comments from a specified post
 ### Based on function RedditExtractorR.reddit_content(), modified to decrease the limit
-post_get_comments <- function(URL, wait_time = 2, sortby = "top", limit = 100){
+post_get_comments <- function(URL, wait_time = 2, sortby = "top", limit = 60){
   
   if(is.null(URL) | length(URL)==0 | !is.character(URL)){stop("invalid URL parameter")}
   
@@ -118,66 +118,106 @@ post_get_comments <- function(URL, wait_time = 2, sortby = "top", limit = 100){
 post_get_data <- function(url){
   #print(url)
   print(paste0("Getting posts from ", url))
-  json <- jsonlite::fromJSON(url)
-  data <- data.frame(json$data$children$data)
-  data <- data %>%
-    mutate(title = escape_strings(title), selftext = escape_strings(selftext))
-  data$author_id <- sapply(strsplit(data$author_fullname,"_"), `[`, 2)
-  data$subreddit_id <- sapply(data$subreddit, function(x) subreddit_get_id(x))
-  sapply(data$author, function(x){
-    print(paste0("Getting information from author ", x))
-    info <- user_get_info(x)
-    user_insert_db(info)
+  json = tryCatch({
+    jsonlite::fromJSON(url)
+  }, error = function(error_condition) {
+    return(list())
   })
-  
-  coin <- data.frame(id = character(), name = character(), description = character(), 
-                     coin_price = integer(), coin_reward = integer())
-  award_post <- data.frame(post_id = character(), coin_id = character(), quantity = integer())
-  # print(data$id)
-  # print(data$title)
-  # print(data$upvote_ratio)
-  # print(data$total_awards_received)
-  # print(data$score)
-  # print(data$created)
-  # print(data$permalink)
-  # print(data$url)
-  # print(data$domain)
-  # print(data$subreddit)
-  # print(data$author_id)
-  post <- data.frame(id = data$id, 
-                     title = data$title, 
-                     upvote_ratio = data$upvote_ratio, 
-                     ups = data$ups, 
-                     total_awards_received = data$total_awards_received, 
-                     score = data$score, 
-                     created = anytime(data$created), 
-                     permalink = data$permalink,
-                     url = data$url,
-                     domain = data$domain, 
-                     subreddit_id = data$subreddit_id, 
-                     author_id = data$author_id)
-  #str(post)
-  
-  for(row in 1:length(data$all_awardings)){
-    #print(data[row, ]$id)
-    #print(data$all_awardings[[row]]$id)
-    award_post <- award_post %>%
-      add_row(post_id = data[row, ]$id,
-              coin_id = data$all_awardings[[row]]$id,
-              quantity = data$all_awardings[[row]]$count)
-    coin <- coin %>%
-      add_row(id = data$all_awardings[[row]]$id,
-              name = gsub("'","" , data$all_awardings[[row]]$name ,ignore.case = TRUE),
-              description = escape_strings(data$all_awardings[[row]]$description),
-              coin_price = data$all_awardings[[row]]$coin_price,
-              coin_reward = data$all_awardings[[row]]$coin_reward)
+  ### Check if the URL is valid, if a subreddit has been deleted it will fail to get a valid URL
+  if(length(json) > 0){
+    data <- data.frame(json$data$children$data)
+    if(nrow(data) > 0){
+      ### Escape text
+      data <- data %>%
+        mutate(title = escape_strings(title), selftext = escape_strings(selftext))
+      ### Obtain the user id from the author
+      data$author_id <- sapply(strsplit(data$author_fullname,"_"), `[`, 2)
+      ### Obtain the subreddit id 
+      data$subreddit_id <- sapply(data$subreddit, function(x) subreddit_get_id(x))
+      ### Check if the post exists
+      data$post_exists <- sapply(data$id, function(x) post_check_if_exists(x))
+      ### If the post already exists don't import it again, we separate the non existing from the dataframe
+      ### 1st check
+      ### If in the column everything is TRUE then the posts are already present in the DB, 
+      ### 2nd check
+      ### If the amount of posts that dont exist are equal to the rows of the dataframe 
+      ### it means none are present in the DB, so there is no need to split them
+      # print(paste0(data$id, collapse = ", "))
+      # print(paste0(data$title, collapse = ", "))
+      # print(paste0(data$upvote_ratio, collapse = ", "))
+      # print(paste0(data$ups, collapse = ", "))
+      # print(paste0(data$total_awards_received, collapse = ", "))
+      # print(paste0(data$score, collapse = ", "))
+      # print(paste0(anytime(data$created), collapse = ", "))
+      # print(paste0(data$permalink, collapse = ", "))
+      # print(paste0(data$url, collapse = ", "))
+      # print(paste0(data$domain, collapse = ", "))
+      # print(paste0(data$subreddit_id, collapse = ", "))
+      # print(paste0(data$author, collapse = ", "))
+      # print(paste0(data$author_id, collapse = ", "))
+      # print(paste0(data$subreddit, collapse = ", "))
+      false_values <- length(data$post_exists[data$post_exists == F])
+      data_all <- post_get_df(data)
+      print(paste0("Getting information from authors: ", paste0(head(data$author), collapse = ", "), ", ..."))
+      
+      if(false_values == nrow(data)){
+        
+        post_get_user_info(data)
+        post_insert_awards(data, data_all)
+      }
+      else if(!all(data$post_exists)){
+        data1 <- split(data, data$post_exists)
+        post_exists <- post_get_df(data1[[2]])
+        post_not_exists <- post_get_df(data1[[1]])
+        ### We return all the posts in the correct structure
+        data_all <- rbind(post_not_exists, post_exists)
+        ### Get the information from the author & insert it in the DB
+        post_get_user_info(post_not_exists)
+        post_insert_awards(data, post_not_exists)
+      } 
+      
+      
+      return(data_all)
+    }
   }
-  coin_insert_db(coin %>% distinct())
-  award_insert_db(award_post %>% distinct())
-  post_insert_db(post)
-  #post
-  post_insert_comments(post)
-  return(post)
+  
+}
+
+post_insert_awards <- function(data, post_not_exists){
+  post_insert_db(post_not_exists)
+  new_data <- data[data$post_exists == FALSE,]
+  if(length(new_data$all_awardings) > 0){
+    coin <- data.frame(id = character(), name = character(), description = character(),
+                       coin_price = integer(), coin_reward = integer())
+    award_post <- data.frame(post_id = character(), coin_id = character(), quantity = integer())
+    for(row in 1:length(new_data$all_awardings)){
+      # print(row)
+      # print(new_data[row, ]$id)
+      if(!is_null(nrow(new_data[row, ]$all_awardings[[1]]))  &&
+         nrow(new_data[row, ]$all_awardings[[1]]) > 0){
+        #if(isFALSE(new_data[row, ]$post_exists) && nrow(new_data[row, ]$all_awardings[[1]]) > 0){
+        #print(new_data[row, ])
+        #print(new_data$all_awardings[[row]]$id)
+        #print(new_data$all_awardings[[row]]$count)
+        award_post <- award_post %>%
+          add_row(post_id = new_data[row, ]$id,
+                  coin_id = new_data$all_awardings[[row]]$id,
+                  quantity = new_data$all_awardings[[row]]$count)
+        coin <- coin %>%
+          add_row(id = new_data$all_awardings[[row]]$id,
+                  name = gsub("'","" , new_data$all_awardings[[row]]$name ,ignore.case = TRUE),
+                  description = escape_strings(new_data$all_awardings[[row]]$description),
+                  coin_price = new_data$all_awardings[[row]]$coin_price,
+                  coin_reward = new_data$all_awardings[[row]]$coin_reward)
+      }
+
+    }
+    if(nrow(coin) > 0) coin_insert_db(coin %>% distinct())
+    if(nrow(award_post) > 0) award_insert_db(award_post)
+
+
+  }
+  post_insert_comments(post_not_exists)
 }
 
 ### post_get_listing()
@@ -210,47 +250,49 @@ post_find_by_query_alt  <- function(query, subreddit, listing, limit=25, timefra
 ### Insert comments from a corresponding post
 post_insert_comments <- function(data){
   base_url = reddit_get_url("comments")
-  print("Getting information from the users in the comments.")
+  #print(data)
   for(row in 1:nrow(data)){
     #print(data[row,])
-    url <- paste(c(base_url, data[row,]$permalink), collapse="")
+    url <- paste(c(base_url, "/r/", data[row,]$subreddit, "/comments/", data[row,]$id, "/"), collapse="")
     print(url)
     #df <- reddit_content(url)
     df <- post_get_comments(url)
     comments <- df[, c("structure", "comm_date", "comment_score", "comment", "URL", "user", "post_text")]
-    comments <- comments %>%
-      mutate(comm_date = as.Date(comm_date, format= "%d-%m-%y"), 
-             post_id = strsplit(URL, "/")[[1]][7], 
-             comment = escape_strings(comment))
-    comments$user_id <- sapply(comments$user, function(x){ 
-      info <- user_get_info(x)
-      user_insert_db(info)
-      info$id
-    })
+    comments <- comments[comments$user != "AutoModerator",]
+    #print(nrow(comments))
+    if(nrow(comments) > 0){
+      comments <- comments %>%
+        mutate(comm_date = as.Date(comm_date, format= "%d-%m-%y"), 
+               post_id = strsplit(URL, "/")[[1]][7], 
+               comment = escape_strings(comment),
+               author = user)
+      print(paste0("Getting information from users: ", paste0(head(comments$user), collapse = ", "), ", ..."))
+      comments$user_id <- sapply(comments$user, function(x){
+        info <- user_get_info(x)
+        #print(info)
+        user_insert_db(info)
+        info$id
+      })
+      #post_get_user_info(comments)
+      
+      post_update_text(comments[1,]$post_id, escape_strings(comments[1,]$post_text))
+      
+      db_settings <- mariadb_get_settings("reddit")
+      database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
+      values <- paste0("('", 
+                       comments$post_id, "', '", 
+                       comments$user_id, "', '", 
+                       comments$structure, "', '",  
+                       comments$comm_date, "', ",
+                       comments$comment_score, ", '",
+                       comments$comment, "')", collapse = ", ")
+      #print(values)
+      query <- paste0("INSERT IGNORE INTO comment VALUES ", values, ";")
+      rs_insert <- dbSendQuery(database, query)
+      dbClearResult(rs_insert)
+      dbDisconnect(database)
+    }
     
-    db_settings <- mariadb_get_settings("reddit")
-    database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
-    post_text <- escape_strings(comments[1,]$post_text)
-    post_id <- comments[1,]$post_id
-    query <- paste0("UPDATE post SET selftext = '", post_text ,"' WHERE id = '", post_id ,"';")
-    rs_insert <- dbSendQuery(database, query)
-    dbClearResult(rs_insert)
-    dbDisconnect(database)
-    
-    db_settings <- mariadb_get_settings("reddit")
-    database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
-    values <- paste0("('", 
-                     comments$post_id, "', '", 
-                     comments$user_id, "', '", 
-                     comments$structure, "', '",  
-                     comments$comm_date, "', ",
-                     comments$comment_score, ", '",
-                     comments$comment, "')", collapse = ", ")
-    #print(values)
-    query <- paste0("INSERT IGNORE INTO comment VALUES ", values, ";")
-    rs_insert <- dbSendQuery(database, query)
-    dbClearResult(rs_insert)
-    dbDisconnect(database)
   }
 }
 
@@ -273,13 +315,78 @@ post_insert_db <- function(post){
                    post$domain, "', ",
                    post$subreddit_id, ", '",
                    post$author_id,"')", collapse = ", ")
-  #print(values)
   query <- paste0("INSERT IGNORE INTO post VALUES ", values, ";")
+  # print(values)
+  # print(query)
   rs_insert <- dbSendQuery(database, query)
   dbClearResult(rs_insert)
   dbDisconnect(database)
 }
 
+### post_check_if_exists()
+### Check if posts exists in database
+post_check_if_exists <- function(id){
+  db_settings <- mariadb_get_settings("reddit")
+  database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
+  query <- paste("SELECT id FROM post WHERE id='",tolower(id),"';", sep="")
+  rs_select = dbSendQuery(database,query)
+  rows <- dbFetch(rs_select)
+  dbClearResult(rs_select)
+  dbDisconnect(database)
+  return(nrow(rows) > 0)
+}
+
+### post_check_if_exists()
+### Updates a post text
+post_update_text <- function(id, text){
+  db_settings <- mariadb_get_settings("reddit")
+  database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
+  query <- paste0("UPDATE post SET selftext = '", text ,"' WHERE id = '", id ,"';")
+  rs_insert <- dbSendQuery(database, query)
+  dbClearResult(rs_insert)
+  dbDisconnect(database)
+}
+
+
+### post_get_df()
+### Get post dataframe
+post_get_df <- function(data){
+  post <- data.frame(id = data$id, 
+                     title = data$title, 
+                     upvote_ratio = data$upvote_ratio, 
+                     ups = data$ups, 
+                     total_awards_received = data$total_awards_received, 
+                     score = data$score, 
+                     created = anytime(data$created), 
+                     permalink = data$permalink,
+                     url = data$url,
+                     domain = data$domain, 
+                     subreddit_id = data$subreddit_id, 
+                     author = data$author,
+                     author_id = data$author_id,
+                     subreddit = data$subreddit)
+  return(post)
+}
+
+### post_get_user_info()
+### Get user information from the post
+post_get_user_info <- function(post){
+  #print(post)
+  # sapply(post$author, function(x){
+  #   print(paste0("Getting information from author ", x))
+  #   info <- user_get_info(x)
+  #   info$id <- post$author_id
+  #   print(info)
+  #   user_insert_db(info)
+  # })
+  for(row in 1:nrow(post)){
+      #print(paste0("Getting information from author ", post[row,]$author))
+      info <- user_get_info(post[row,]$author)
+      info$id <- post[row,]$author_id
+      #print(info)
+      user_insert_db(info)
+  }
+}
 
 ### post_construct_graph()
 ### Construct a graph from a post using RedditExtractor.user_network()
@@ -312,7 +419,9 @@ award_insert_db <- function(awards){
   rs_insert <- dbSendQuery(database, query)
   dbClearResult(rs_insert)
   dbDisconnect(database)
+  #print(query)
 }
+
 
 ### coin_insert_db()
 ### Insert coins into the database
@@ -333,3 +442,4 @@ coin_insert_db <- function(coin){
   dbClearResult(rs_insert)
   dbDisconnect(database)
 }
+
