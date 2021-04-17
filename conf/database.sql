@@ -46,6 +46,7 @@ CREATE TABLE post (
     total_awards_received  INT,
     score                  INT,
     created                DATETIME,
+    date_added             DATETIME,
     permalink              TEXT,
     url                    TEXT,
     domain                 VARCHAR(255),
@@ -102,5 +103,15 @@ ALTER TABLE post
     ADD CONSTRAINT post_user_fk FOREIGN KEY ( user_id )
         REFERENCES user ( id );
 
+
+CREATE VIEW posts_per_subreddit AS
+SELECT
+       subreddit.name as subreddit, COUNT(post.id) as posts
+FROM
+     sna_reddit.subreddit, sna_reddit.post
+WHERE
+      subreddit.id = post.subreddit_id
+GROUP BY subreddit.name
+ORDER BY subreddit.name;
 
 

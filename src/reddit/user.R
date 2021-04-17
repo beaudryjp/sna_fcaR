@@ -1,20 +1,23 @@
-source(paste0(getwd(), "/src/", "reddit_general.R"))
+source(paste0(getwd(), "/src/", "general.R"))
 
-### user_get_info()
+###################################### DATA COLLECTION ######################################  
+
+
+### user.get_info()
 ### Get information from a specified user
-user_get_info <- function(user){
-  
+user.get_info <- function(user){
+  #print(user)
   ### If the user has been deleted there is no way of obtaining the data before the deletion
   ### So all the users which have been deleted will be classified as the same
   if(user == "[deleted]"){
     data <- data.frame(id = "t1234", name = "[deleted]") 
   }
-  ### On multiple subreddits, the bot AutoModerator writes the first comment on each post 
-  ### concerning the rules of such subreddit so we remove these comments
-  else if(user != "AutoModerator"){
+  else if(user == "AutoModerator"){
+    data <- data.frame(id = "6l4z3", name = "AutoModerator") 
+  }
+  else{
     #print(paste0("Getting information from user ", user))
-    base_url = reddit_get_url("user")
-    url <- paste(c(base_url, user ,"/about.json"), collapse="")
+    url <- paste(c("https://www.reddit.com/user/", user ,"/about.json"), collapse="")
     pd <- ""
     #print(url)
     ### if user doesnt exist it will return the following error Error in open.connection(con, \"rb\"): HTTP error 404.
@@ -53,28 +56,41 @@ user_get_info <- function(user){
                            is_mod = as.logical(json$data$is_mod),
                            is_suspended = FALSE) 
       }
+      #print(data)
       return(data)
     }
-    
-    
+    else{
+      return(data.frame(id = "t1234", name = "[deleted]") )
+    }
   }
-  else
-    return(NA)
   
 }
 
-### user_insert_db()
+
+### user.get_comments()
+### Get comments from a specified user
+# user.get_comments <- function(user, sortby="top", limit=100){
+#   base_url = reddit_get_url("user")
+#   url <- paste(c(base_url, user ,"/comments/.json?sort=", sortby,"&limit=", limit), collapse="")
+#   print(url)
+#   json <- jsonlite::fromJSON(url)
+#   data <- data.frame(json$data$children$data)
+# }
+
+
+###################################### DATABASE OPERATIONS ######################################  
+
+
+### user.insert_in_db()
 ### Insert user into the database
-user_insert_db <- function(user){
+user.insert_in_db <- function(user){
   values <- ""
   query <- ""
   #print(user)
   ### Check if user exists, if TRUE do nothing
-  if(isFALSE(user_check_if_exists(user$id)) && !is_null(user)){ 
-    db_settings <- mariadb_get_settings("reddit")
-    database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
+  if(isFALSE(user.check_if_exists(user$id)) && !is.null(user)){ 
     #print(user)
-    if(user$name == "[deleted]"){
+    if(user$name == "[deleted]" || user$name == "AutoModerator"){
       values <- paste0("('", user$id, "', '", user$name,"')", collapse = ", ") 
       query <- paste0("INSERT IGNORE INTO user (id, name) VALUES ", values, ";")
     }
@@ -95,32 +111,15 @@ user_insert_db <- function(user){
     
     # print(values)
     # print(query)
-    rs_insert <- dbSendQuery(database, query)
-    dbClearResult(rs_insert)
-    dbDisconnect(database)
+    db.insert(query)
   }
   
 }
 
-### user_check_if_exists()
-### Check if a user exists in the database
-user_check_if_exists <- function(id){
-  db_settings <- mariadb_get_settings("reddit")
-  database <- dbConnect(RMariaDB::MariaDB(), default.file=db_settings$file, group=db_settings$db)
-  query <- paste("SELECT id FROM user WHERE id='", tolower(id),"';", sep="")
-  rs_select = dbSendQuery(database,query)
-  rows <- dbFetch(rs_select)
-  dbClearResult(rs_select)
-  dbDisconnect(database)
-  return(nrow(rows) > 0)
-}
 
-### user_get_comments()
-### Get comments from a specified user
-# user_get_comments <- function(user, sortby="top", limit=100){
-#   base_url = reddit_get_url("user")
-#   url <- paste(c(base_url, user ,"/comments/.json?sort=", sortby,"&limit=", limit), collapse="")
-#   print(url)
-#   json <- jsonlite::fromJSON(url)
-#   data <- data.frame(json$data$children$data)
-# }
+### user.check_if_exists()
+### Check if a user exists in the database
+user.check_if_exists <- function(id){
+  query <- paste("SELECT id FROM user WHERE id='", tolower(id),"';", sep="")
+  return(db.check_if_exists(query))
+}
