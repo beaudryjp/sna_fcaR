@@ -1,0 +1,54 @@
+FROM rocker/shiny-verse:latest 
+ 
+RUN apt-get update \
+  && apt-get install -f -y \
+    file \
+    git \
+    libapparmor1 \
+    libclang-dev \
+    libcurl4-openssl-dev \
+    libedit2 \
+    libssl-dev \
+    lsb-release \
+    psmisc \
+    procps \
+    python-setuptools \
+    libmariadb-dev \
+    libmariadbclient-dev \
+    vim \
+    sudo \
+    wget \
+     libxml2-dev \
+    libudunits2-0 \
+    libudunits2-dev \
+    libhdf5-dev \
+    libssl-dev \
+    libxml2-dev \
+    libpng-dev \
+    libxt-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    liblzma-dev \
+    libglpk40 \
+    libgit2-28 \
+    libmariadb-dev \
+    libmariadbclient-dev \
+    libgeos-dev \
+    libproj-dev \
+    libfontconfig1-dev \
+    mariadb-client \
+  && apt-get clean all && \
+  apt-get purge && \
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+ 
+RUN R -e 'install.packages(c("devtools", "R6", "RMariaDB", "RMySQL", "DBI", "pool", "arules", "arulesViz", "fcaR", "BiocManager", "colorspace", "tidyverse", "shiny", "shinythemes", "shinyjs", "shinybusy", "shinymanager", "gotop", "correlationfunnel", "wordcloud", "wordcloud2", "tm", "RedditExtractoR", "twitteR", "textclean", "anytime", "stringr", "stringi", "jsonlite", "RJSONIO", "tictoc"))'
+
+RUN R -e 'BiocManager::install("Rgraphviz")'
+
+RUN R -e 'install.packages("hasseDiagram")'
+
+COPY ./app /srv/shiny-server/app/
+
+EXPOSE 3838
+
+CMD ["R", "-e", "shiny::runApp('/srv/shiny-server/app/', host = '0.0.0.0', port = 3838)"]

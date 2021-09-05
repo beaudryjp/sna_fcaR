@@ -1,0 +1,2 @@
+source("globals.R")
+runApp()
